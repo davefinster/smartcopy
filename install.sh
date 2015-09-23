@@ -1,5 +1,5 @@
 #!/bin/bash
-INSTALL_PATH=/opt/testing;
+INSTALL_PATH=/opt;
 CONFIG_PATH=$INSTALL_PATH/smartcopy/configuration.json;
 PRESERVE_CONFIG="false";
 if [ "$1" == "-preserve-config" ]

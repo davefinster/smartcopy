@@ -32,7 +32,7 @@ cp -R ../bin ./smartcopy/bin;
 cp -R ../lib ./smartcopy/lib;
 cp -R ../configuration.json ./smartcopy/;
 cp -R ../package.json ./smartcopy;
-if [ ! -f ../configuration.json ]
+if [ -f ../configuration.json ]
   then
     echo "Detected configuration file - including in build"
     cp ../configuration.json ./smartcopy;
