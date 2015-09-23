@@ -97,6 +97,8 @@ var endpoint = lib.Endpoint.defaultEndpoint();
 var toolEndpoint = new Smartos.Endpoint.Local();
 var vmadm = new Smartos.Wrapper.Vmadm(toolEndpoint);
 
+var errors = [];
+
 log.info("Getting VM data");
 vmadm.get(vmUuid, false, function(err, vm){
   var virtualMachine = vm;
@@ -106,7 +108,8 @@ vmadm.get(vmUuid, false, function(err, vm){
       alias = vm.alias;
     }
     log.fatal(err);
-    lib.Notification.Email.notify([], alias, err, function(err){
+    errors.push(err);
+    lib.Notification.Email.notify([], alias, errors, function(err){
       log.info('Complete');
     });
     return;
@@ -116,7 +119,9 @@ vmadm.get(vmUuid, false, function(err, vm){
     if ( err != null ){
       log.fatal('Error encountered while performing snapshot operations');
       log.fatal(err);
-      lib.Notification.Email.notify([], virtualMachine.alias, err, function(err){
+      errors.push(err);
+      lib.Notification.Email.notify([], virtualMachine.alias, errors,
+      function(err){
         log.info('Complete');
       });
       return;
@@ -154,10 +159,17 @@ vmadm.get(vmUuid, false, function(err, vm){
       });
       return processor.execute(callback);
     }, function(err){
+      if ( err != null ){
+        errors.push(err);
+      }
       async.each(snapshots, function(snapshot, callback){
         var forEachCallback = callback;
         var snapLog = log.child({datasetName: snapshot.datasetName});
         var snapshotGroup = snapshot.datasetName + '@' + snapshotGroupName;
+        if ( err != null ){
+          //avoid rotating the snapshots if an error is encountered
+          return forEachCallback(null);
+        }
         async.parallel([
           function(cb){
             snapLog.info('Rotating remote snapshots in group %s to limit %d',
@@ -173,12 +185,15 @@ vmadm.get(vmUuid, false, function(err, vm){
           }
         ], forEachCallback);
       }, function(err){
+        if ( err != null ){
+          errors.push(err);
+        }
         log.info(
           "Snapshot transfer and rotation operations complete. Dispatching \
            notifications.");
         var notificationOrder = lib.Config.notificationOrder.split(',');
         if ( notificationOrder.length > 0 ){
-          lib.Notification.Email.notify(snapshots, vm.alias, err, function(err){
+          lib.Notification.Email.notify(snapshots, vm.alias, errors, function(err){
             log.info("Complete");
           });
         }else{
