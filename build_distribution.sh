@@ -28,8 +28,8 @@ echo "Copying smartcopy files"
 mkdir smartcopy;
 mkdir smartcopy/bin;
 mkdir smartcopy/lib;
-cp -R ../bin ./smartcopy/bin;
-cp -R ../lib ./smartcopy/lib;
+cp -R ../bin ./smartcopy;
+cp -R ../lib ./smartcopy;
 cp -R ../configuration.json ./smartcopy/;
 cp -R ../package.json ./smartcopy;
 if [ -f ../configuration.json ]
