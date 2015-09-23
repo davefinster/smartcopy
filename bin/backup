@@ -1,0 +1,190 @@
+#!/opt/node/bin/node --abort_on_uncaught_exception
+var bunyan = require('bunyan');
+var lib = require('./../lib');
+
+var validator = require('validator');
+var async = require('async');
+var Smartos = require('smartos-tools');
+var argv = require('minimist')(process.argv.slice(2));
+
+var logVerbosity = lib.Config.logVerbosity;
+if ( argv['logVerbosity'] != null ){
+  logVerbosity = argv['logVerbosity'];
+}
+
+var outputVerbosity = lib.Config.outputVerbosity;
+if ( argv['outputVerbosity'] != null ){
+  outputVerbosity = argv['outputVerbosity'];
+}
+
+//extract/validate the VM UUID
+var vmUuid = null;
+if (( argv['_'].length == 1 ) && ( validator.isUUID(argv['_'][0]))){
+  vmUuid = argv['_'][0];
+}else{
+  console.log('This script requires a VM UUID at minimum');
+  process.exit(9);
+}
+
+var logDestination = lib.Config.logDirectory + '/smartcopy-' + vmUuid + '.log';
+if ( argv['logDestination'] != null ){
+  logDestination = argv['logDestination'];
+}
+var log = bunyan.createLogger({
+  name: 'smartcopyBackup',
+  streams: [
+    {
+      level: outputVerbosity,
+      stream: process.stdout
+    },
+    {
+      level: logVerbosity,
+      path: logDestination
+    }
+  ]
+});
+lib.Config.logger = log;
+log.debug("Working with arguments %s", JSON.stringify(argv));
+log.info("Performing backup for VM UUID %s", vmUuid);
+//setup the basic snapshot information - snapshot name and group name
+var time = new Date();
+var snapshotName = time.toISOString();
+if ( argv['name'] != null ){
+  snapshotName = argv['name'];
+}
+log.info("Name of this snapshot will be %s", snapshotName);
+var snapshotGroupName = 'smartcopy';
+if ( lib.Config.snapshotIdentifier != null ){
+  snapshotGroupName = lib.Config.snapshotIdentifier;
+  log.debug("Name of this snapshot changed to %s from config",
+   snapshotGroupName);
+}
+if ( argv['groupName'] != null ){
+  snapshotGroupName = argv['groupName'];
+  log.debug("Name of this snapshot changed to %s from CLI argument",
+   snapshotGroupName);
+}
+log.info("Snapshot group name will be %s", snapshotGroupName);
+snapshotName = [snapshotGroupName, snapshotName].join('-');
+log.info("Full snapshot name will be %s", snapshotName);
+
+var transferStrategy = lib.Config.transferStrategy;
+if ( argv['transferStrategy'] != null ){
+  transferStrategy = argv['transferStrategy'];
+  log.debug("Transfer strategy changed to %s from CLI argument",
+   transferStrategy);
+}
+log.info("Transfer strategy %s will be used", transferStrategy);
+
+var snapshots = [];
+
+var localSnapLimit = lib.Config.localSnapshotLimit;
+log.debug("Local snapshot limit is %d from config", localSnapLimit);
+if ( argv['localSnapLimit'] != null ){
+  localSnapLimit = parseInt(argv['localSnapLimit']);
+  log.debug("Local snapshot limit is %d from CLI argument", localSnapLimit);
+}
+log.info("Local snapshot limit will be %d", localSnapLimit);
+var remoteSnapLimit = lib.Config.remoteSnapshotLimit;
+log.debug("Remote snapshot limit is %d from config", remoteSnapLimit);
+if ( argv['remoteSnapshotLimit'] != null ){
+  remoteSnapshotLimit = parseInt(argv['remoteSnapshotLimit']);
+  log.debug("Remote snapshot limit is %d from CLI argument", remoteSnapLimit);
+}
+log.info("Remote snapshot limit will be %d", remoteSnapLimit);
+
+var endpoint = lib.Endpoint.defaultEndpoint();
+var toolEndpoint = new Smartos.Endpoint.Local();
+var vmadm = new Smartos.Wrapper.Vmadm(toolEndpoint);
+
+log.info("Getting VM data");
+vmadm.get(vmUuid, false, function(err, vm){
+  var virtualMachine = vm;
+  if (( err != null ) || ( vm == null )) {
+    var alias = vmUuid;
+    if ( vm != null ){
+      alias = vm.alias;
+    }
+    log.fatal(err);
+    lib.Notification.Email.notify([], alias, err, function(err){
+      log.info('Complete');
+    });
+    return;
+  }
+  log.debug(virtualMachine, 'Starting the snapshot process');
+  lib.Backup.snapshotVm(virtualMachine, snapshotName, function(err, res){
+    if ( err != null ){
+      log.fatal('Error encountered while performing snapshot operations');
+      log.fatal(err);
+      lib.Notification.Email.notify([], virtualMachine.alias, err, function(err){
+        log.info('Complete');
+      });
+      return;
+    }
+    log.info('Snapshots taken. Staging transfer process');
+    snapshots = res;
+    log.debug(snapshots);
+    var validSnapshots = [];
+    if (( virtualMachine.datasets != null ) && ( virtualMachine.datasets.length > 0 )){
+      for ( var i = 0; i < res.length; i++ ){
+        var snap = res[i];
+        //check to see if any of the snapshots are delegate datasets
+        //if they are, they'll get caught in the parent transfer
+        if ( virtualMachine.datasets.indexOf(snap.datasetFullName()) == -1 ){
+          validSnapshots.push(res[i]);
+        }else{
+          log.trace('Removing snapshot %s as its a delegated dataset',
+          res[i].datasetFullName());
+        }
+      }
+    }else{
+      validSnapshots = res;
+    }
+    //snapshots are done
+    async.each(validSnapshots, function(snapshot, callback){
+      var snap = snapshot;
+      var snapLog = log.child({datasetName: snap.datasetName});
+      snapLog.info('Starting transfer process');
+      var processor = new lib.TransferProcessor({
+        log: snapLog,
+        strategy: transferStrategy,
+        snapshot: snap,
+        remoteEndpoint: endpoint,
+        remoteSnapshotPath: lib.Config.backupDestinationBasePath
+      });
+      return processor.execute(callback);
+    }, function(err){
+      async.each(snapshots, function(snapshot, callback){
+        var forEachCallback = callback;
+        var snapLog = log.child({datasetName: snapshot.datasetName});
+        var snapshotGroup = snapshot.datasetName + '@' + snapshotGroupName;
+        async.parallel([
+          function(cb){
+            snapLog.info('Rotating remote snapshots in group %s to limit %d',
+          snapshotGroup, remoteSnapLimit);
+            lib.Rotate.rotateSnapshotsContainingName(snapshotGroup, endpoint,
+              remoteSnapLimit, cb);
+          },
+          function(cb){
+            snapLog.info('Rotating local snapshots in group %s to limit %d',
+          snapshotGroup, localSnapLimit);
+            lib.Rotate.rotateSnapshotsContainingName(snapshotGroup, null,
+              localSnapLimit, cb);
+          }
+        ], forEachCallback);
+      }, function(err){
+        log.info(
+          "Snapshot transfer and rotation operations complete. Dispatching \
+           notifications.");
+        var notificationOrder = lib.Config.notificationOrder.split(',');
+        if ( notificationOrder.length > 0 ){
+          lib.Notification.Email.notify(snapshots, vm.alias, err, function(err){
+            log.info("Complete");
+          });
+        }else{
+          log.info("Complete");
+        }
+      });
+    });
+  });
+});

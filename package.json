@@ -1,0 +1,25 @@
+{
+  "name": "smartcopy",
+  "version": "0.0.1",
+  "description": "Backup support for SmartOS",
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha test"
+  },
+  "keywords": [
+    "smartos"
+  ],
+  "author": "Dave Finster <davefinster@me.com>",
+  "license": "MIT",
+  "dependencies": {
+    "assert-plus": "^0.1.5",
+    "async": "*",
+    "bunyan": "*",
+    "smartos-tools": "*",
+    "uuid":"*",
+    "nodemailer":"*",
+    "nodemailer-smtp-transport":"*",
+    "minimist":"*",
+    "validator":"*"
+  }
+}
