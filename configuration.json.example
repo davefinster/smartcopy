@@ -5,6 +5,7 @@
   "backupDestinationBasePath": "tank",
   "backupConfigurationDestinationPath": "tank/configs",
   "backupDestinationPrivateKeyPath": "/opt/backup_id_rsa",
+  "disableHostKeyChecking":true,
   "transferStrategy":"mbuffer",
   "snapshotIdentifier":"smartcopy",
   "mBufferLocalPath":"/opt/smartcopy/bin/mbuffer",
