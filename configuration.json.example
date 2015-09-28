@@ -3,6 +3,7 @@
   "backupDestination": "192.168.38.134",
   "backupDestinationUsername": "root",
   "backupDestinationBasePath": "tank",
+  "backupConfigurationDestinationPath": "tank/configs",
   "backupDestinationPrivateKeyPath": "/opt/backup_id_rsa",
   "transferStrategy":"mbuffer",
   "snapshotIdentifier":"smartcopy",

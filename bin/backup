@@ -188,17 +188,29 @@ vmadm.get(vmUuid, false, function(err, vm){
         if ( err != null ){
           errors.push(err);
         }
-        log.info(
-          "Snapshot transfer and rotation operations complete. Dispatching \
-           notifications.");
-        var notificationOrder = lib.Config.notificationOrder.split(',');
-        if ( notificationOrder.length > 0 ){
-          lib.Notification.Email.notify(snapshots, vm.alias, errors, function(err){
+        log.info("Staging VM spec backup");
+        var specBackup = new lib.VmSpecBackup({
+          remoteEndpoint: endpoint,
+          remoteSpecPath: lib.Config.backupConfigurationDestinationPath,
+          log: log,
+          vmUuid: vmUuid
+        });
+        specBackup.execute(function(err){
+          if ( err != null ){
+            errors.push(err);
+          }
+          log.info(
+            "Snapshot transfer and rotation operations complete. Dispatching \
+             notifications.");
+          var notificationOrder = lib.Config.notificationOrder.split(',');
+          if ( notificationOrder.length > 0 ){
+            lib.Notification.Email.notify(snapshots, vm.alias, errors, function(err){
+              log.info("Complete");
+            });
+          }else{
             log.info("Complete");
-          });
-        }else{
-          log.info("Complete");
-        }
+          }
+        });
       });
     });
   });
