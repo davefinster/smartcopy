@@ -25,5 +25,6 @@
   "smtpToAddress":"<to address>",
   "logDirectory":"/var/log",
   "logVerbosity":"info",
-  "outputVerbosity":"info"
+  "outputVerbosity":"info",
+  "httpHost":"http://username:password@my-remote-api:80/some/path"
 }

@@ -99,17 +99,29 @@ var vmadm = new Smartos.Wrapper.Vmadm(toolEndpoint);
 
 var errors = [];
 
+var notificationSettings = {
+  notificationOrder: lib.Config.notificationOrder,
+  notificationContent: {
+    vm: null,
+    snapshots: [],
+    errors: []
+  }
+}
+
+var notifier = new lib.Notifier(notificationSettings);
+
 log.info("Getting VM data");
 vmadm.get(vmUuid, false, function(err, vm){
   var virtualMachine = vm;
+  notificationSettings.notificationContent.vm = vm;
   if (( err != null ) || ( vm == null )) {
     var alias = vmUuid;
     if ( vm != null ){
       alias = vm.alias;
     }
     log.fatal(err);
-    errors.push(err);
-    lib.Notification.Email.notify([], alias, errors, function(err){
+    notificationSettings.notificationContent.errors.push(err);
+    notifier.dispatchAll(function(err){
       log.info('Complete');
     });
     return;
@@ -119,9 +131,8 @@ vmadm.get(vmUuid, false, function(err, vm){
     if ( err != null ){
       log.fatal('Error encountered while performing snapshot operations');
       log.fatal(err);
-      errors.push(err);
-      lib.Notification.Email.notify([], virtualMachine.alias, errors,
-      function(err){
+      notificationSettings.notificationContent.errors.push(err);
+      notifier.dispatchAll(function(err){
         log.info('Complete');
       });
       return;
@@ -145,7 +156,7 @@ vmadm.get(vmUuid, false, function(err, vm){
     }else{
       validSnapshots = res;
     }
-    //snapshots are done
+    //snapshots have been created - transfer them
     async.each(validSnapshots, function(snapshot, callback){
       var snap = snapshot;
       var snapLog = log.child({datasetName: snap.datasetName});
@@ -160,7 +171,7 @@ vmadm.get(vmUuid, false, function(err, vm){
       return processor.execute(callback);
     }, function(err){
       if ( err != null ){
-        errors.push(err);
+        notificationSettings.notificationContent.errors.push(err);
       }
       async.each(snapshots, function(snapshot, callback){
         var forEachCallback = callback;
@@ -186,7 +197,7 @@ vmadm.get(vmUuid, false, function(err, vm){
         ], forEachCallback);
       }, function(err){
         if ( err != null ){
-          errors.push(err);
+          notificationSettings.notificationContent.errors.push(err);
         }
         log.info("Staging VM spec backup");
         var specBackup = new lib.VmSpecBackup({
@@ -197,19 +208,15 @@ vmadm.get(vmUuid, false, function(err, vm){
         });
         specBackup.execute(function(err){
           if ( err != null ){
-            errors.push(err);
+            notificationSettings.notificationContent.errors.push(err);
           }
           log.info(
             "Snapshot transfer and rotation operations complete. Dispatching \
              notifications.");
-          var notificationOrder = lib.Config.notificationOrder.split(',');
-          if ( notificationOrder.length > 0 ){
-            lib.Notification.Email.notify(snapshots, vm.alias, errors, function(err){
-              log.info("Complete");
-            });
-          }else{
-            log.info("Complete");
-          }
+          notificationSettings.notificationContent.snapshots = snapshots;
+          notifier.dispatchAll(function(err){
+            log.info('Complete');
+          });
         });
       });
     });
